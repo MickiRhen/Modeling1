@@ -1,0 +1,97 @@
+---
+title: "Probability distributions"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 2
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+---
+
+Probability Distributions
+========================================================
+
+Probability distributions are one of the building blocks of statistics and
+come in handy for modeling undertain quantities when we build simulation models.
+R has numerous functions for:
+
+* generating random numbers from a wide range of probability distributions
+* calculating probabilities from pdf's and CDF's
+* calculating quantiles for a wide range of probability distributions
+
+There's a good introduction in Ch 17 of **RforE**.
+
+Generating random variates
+---------------------------
+
+Start with the familiar normal distribution
+```{r gen_normals}
+# Generate 10 draws for a N(0,1)
+rnorm(n=10)
+
+# Generate 25 draws for a N(10,3)
+rnorm(n=25,10,3)
+```
+
+One reason for knowing about random number generation is that you'll see people
+on StackOverflow use functions like `rnorm` and `runif` (which at first glance
+suggests "run if" - nope) to generate simple random datasets to use in their
+questions. For example, to make a quick vector of numbers:
+
+```{r random_vector}
+v <- rnorm(10)
+v
+```
+
+Or, to create a dataframe:
+
+```{r random_df}
+d <- data.frame(a=rnorm(10),b=rnorm(10,5,1),c=runif(10,5,15))
+str(d)
+```
+
+Probabilities and quantiles
+----------------------------
+You probably recall a few quantiles of the standard normal distribution.
+
+Let $X \sim N(0,1)$. Find $x$ such that $P(X \leq x)=0.95$.
+
+```{r qnorm}
+qnorm(0.95,0,1)
+```
+
+What is $P(X \leq 3)$?
+
+```{r pnorm}
+pnorm(3,0,1)
+```
+
+How much area in the standard normal distribution is between +-2?
+
+```{r norm_area_between}
+pnorm(2,0,1) - pnorm(-2,0,1)
+```
+
+What about +-1, +-2, +-3?
+
+```{r empirical_rule}
+pnorm(1,0,1) - pnorm(-1,0,1)
+pnorm(2,0,1) - pnorm(-2,0,1)
+pnorm(3,0,1) - pnorm(-3,0,1)
+```
+
+We can plot the normal distribution density function.
+
+```{r lib_ggplot2}
+library(ggplot2)
+```
+
+```{r plot_norm_density}
+seqNorm <- seq(-5,5,.001)
+randDensity <- dnorm(seqNorm)
+ggplot(data.frame(x=seqNorm, y=randDensity)) + 
+  aes(x=x, y=y) + geom_line() + labs(x="Z values", y="Density")
+```
+
+This is just a quick first look at probability distributions in R. It's got a slew of functions. 

@@ -1,0 +1,97 @@
+---
+title: "Residual analysis"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 2
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+---
+
+
+Residual analysis
+========================================================
+
+```{r lib_ggplot2}
+library(ggplot2)
+```
+
+Load the prediction file we saved.
+
+```{r load_predictions}
+load("data/housingmodels_GLM_1_7.rdata")
+```
+
+Like all modeling approaches, linear regression has its share of assumptions. A
+few biggies are:
+
+* residuals are normally distributed with mean of 0
+* residuals have constant variance (estimated by the standard error of the residuals)
+
+For the first one, we can certainly create a histogram of the residuals. If you
+recall, the residuals get saved with the model object.
+
+```{r ls_model}
+class(houseG4)
+ls(houseG4)
+```
+
+What happens if I pass in a model object directly to ggplot? Let's try it.
+
+```{r histo_resids}
+hist_resid <- ggplot(houseG4) + geom_histogram(aes(x = houseG4$residuals))
+hist_resid
+```
+
+It would kind of cool to overlay a normal density plot on this histogram corresponding
+to a normal distribution with mean of 0 and standard deviation equal to the standard error (SE)
+of the residuals. We can pluck the value using the `summary` function. While in `lm()`
+the SE is in the `sigma` property, in `glm` we compute SE as the `sqrt(dispersion)`.
+
+http://stats.stackexchange.com/questions/33432/dispersion-parameter-in-glm-output
+
+```{r se_glm}
+#SE_LM1 <- summary(houseG4)$sigma
+SE_G1 <- sqrt(summary(houseG4)$dispersion)
+```
+
+```{r histo_resid_norm}
+# Need stat_function from ggplot2
+hist_resid + 
+  stat_function(fun = dnorm, colour = 'red', 
+                args = list(mean = 0, sd = SE_G1))
+```
+
+
+Whoa, what happened?!
+
+Easy fix.
+
+```{r histo_resids_density}
+hist_resid <- ggplot(houseG4) + 
+  geom_histogram(aes(x =houseG4$residuals, y = ..density..))
+
+hist_resid + 
+  stat_function(fun = dnorm, colour = 'red', 
+                args = list(mean = 0, sd = SE_G1))
+```
+
+Not a terrible looking fit.
+
+The other key assumption is that the residuals are constant in the sense of not
+being dependent on the level of the predicted value. To check this, the standard
+approach is to plot residuals vs. predicted values. Note the "dotted" notation
+for accessing attributes of houseG4. 
+
+```{r check_constant_var}
+ggplot(data=houseG4, aes(x = .fitted, y = .resid)) + 
+  geom_point(aes(color = Boro))
+```
+
+So, do the errors appear to be dependent on the level of the fitted values? If
+so, we say that the residuals are *heteroskedastic*, and it's an indication that
+variance in residuals is not constant. More work to do to find a better model.
+
+See p308 of **RforE** for an example of a Q-Q plot which is another of way of
+checking ...?

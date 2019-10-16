@@ -1,0 +1,437 @@
+---
+title: "More on comparing competing regression models"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 2
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+---
+
+
+Comparing competing models - more measures 
+========================================================
+
+See Section 21.2 in **RforE**.
+
+```{r libs}
+library(ggplot2)
+```
+
+Load the prediction file we saved.
+
+```{r loaddata}
+load("data/housePredict1234.rdata")
+```
+
+Common approaches to comparing models with respect to fit include:
+
+* $R^2$
+* Adjusted $R^2$
+* MSE
+* RSS - residual sum of squares (which is conceptually equivalent to comparing $R^2$)
+* AIC - Akaike Information Criterion
+* BIC - Bayesian Information Criterion
+
+
+As you probably know, a problem with $R^2$ is that it can never decrease as more
+and more variables are added to the model. Willy nilly adding more and more
+variables can lead to overly complex (and unexplainable) models as well as
+*overfitting*.
+
+Approaches that try to account for addition of variables with low explanatory
+value include the commonly reported adjusted $R^2$ and AIC, and BIC. 
+See p311 in **RforE** for a little of the math
+behind AIC and BIC. For RSS, AIC, and BIC, lower is better.
+
+If you really want to understand AIC and BIC, you'll have to learn about
+likelihood functions. They come up all the time in model fitting. For more
+complex models, least squares doesn't work for estimating model parameters.
+Instead, we compute something called *maximum likelihood estimators*. In
+essence, we find parameter values that maximize the chance of seeing the
+response data that we actually saw. Again, under the hood, we are solving an
+optimization problem - well, we'll let R do it for us.
+
+Here's a picture. Which curve is more likely to generate the data summarized in the histogram. (thanks to https://blogs.sas.com/content/iml/2011/10/12/maximum-likelihood-estimation-in-sasiml.html). This example is actually from a very famous dataset that you cannot avoid if you
+start exploring data science. We'll see it soon.
+
+```{r mlepic, out.width="600px"}
+knitr::include_graphics('images/mlenormal.png')
+```
+
+Let's rerun the first four models so we have the full output.
+
+```{r rerun models}
+houseLM1 <- lm(ValuePerSqFt ~ Units + SqFt + Boro, data = housing_fit)
+houseLM2 <- lm(ValuePerSqFt ~ Units * SqFt + Boro, data = housing_fit)
+houseLM3 <- lm(ValuePerSqFt ~ Units : SqFt + Boro, data = housing_fit)
+houseLM4 <- lm(ValuePerSqFt ~ Units * SqFt + Boro + log(NetIncome), 
+               data = housing_fit)
+```
+
+Let's fit a few more models and compute AIC and BIC for all of them
+
+```{r newmodels}
+houseLM5 <- lm(ValuePerSqFt ~ Boro + Units*SqFt + log(NetIncome) + Class,
+               data = housing_fit)
+
+houseLM6 <- lm(ValuePerSqFt ~ Boro + Units*SqFt + log(NetIncome) + 
+                 Class + Age, 
+               data = housing_fit)
+```
+
+Put all the $R^2$ values into a vector.
+
+```{r rsquared}
+rsqd_vals <- c(summary(houseLM1)$r.squared,
+  summary(houseLM2)$r.squared,
+  summary(houseLM3)$r.squared,
+  summary(houseLM4)$r.squared,
+  summary(houseLM5)$r.squared,
+  summary(houseLM6)$r.squared)
+
+rsqd_vals
+```
+
+Check out different measures of fit across the models. 
+
+```{r anova_aic_bic}
+anova(houseLM1, houseLM2, houseLM3, houseLM4, houseLM5, houseLM6)
+AIC(houseLM1, houseLM2, houseLM3, houseLM4, houseLM5, houseLM6)
+BIC(houseLM1, houseLM2, houseLM3, houseLM4, houseLM5, houseLM6)
+
+```
+
+
+Cross Validation (Section 21.3)
+-------------------------------
+
+As computational power has become extremely accessible and affordable, other 
+approaches to assessing model quality based on *cross-validation* have become
+quite popular. We already did a little bit of this when we partitioned the housing
+data set into (non-overlapping) fit and test sets. This idea has been generalized
+and called **k-fold cross-validation**. The basic idea is:
+
+- break dataset into 5-10 non-overlapping pieces ($k$ is number of pieces)
+- fit model using $k-1$ pieces
+- used fitted model to make predictions on the $k$'th piece.
+- repeat this for $k$ times (each of the sections is the *hold-out* one time)
+- average the quality metric over the $k$ runs
+
+Here's a picture (thanks to http://blog.goldenhelix.com/goldenadmin/cross-validation-for-genomic-prediction-in-svs/)
+
+```{r kcrosspic, out.width="800px"}
+knitr::include_graphics('images/kcrossfold.jpg')
+```
+
+
+R is a natural computing environment for techniques like k-fold cross-validation
+due to its full featured programming constructs. A number of R packages exist
+for doing cross-validation in the context of many different modeling paradigms.
+For the case of *generalized linear models* (GLM), a package called **boot**
+provides a function called `cv.glm` for this. If you check out Ch 17 in
+**RforE**, you'll see that GLM includes, in addition to multiple linear
+regression, other related techniques such as logistic regression and survival
+analysis.
+
+```{r lib_boot}
+library(boot)
+```
+
+Now refit house1 using `glm` instead of `lm`. We'll talk more about
+the `family` parameter. For ordinary multiple linear regression, the
+`family = gaussian` means that the residuals have a gaussian (normal)
+distribution. Who was this [Gauss](https://en.wikipedia.org/wiki/Carl_Friedrich_Gauss)?
+
+```{r refit_glm}
+
+houseG1 <- glm(ValuePerSqFt ~ Units + SqFt + Boro, 
+               data = housing_fit, 
+               family = gaussian(link="identity"))
+```
+
+We want to ensure that `glm` gives the same results as `lm`. Hmm, how to do that.
+Well, we could test to see if the coefficients are the same. An easy way to do
+this is use R's `identical` function to test of the two associated `coefficients`
+objects are identical.
+
+```{r glm_lm_identical}
+help(identical)
+identical(coef(houseLM1), coef(houseG1))
+```
+
+Now, we can use `cv.glm` to crank out the cross-validation for $k=5$.
+
+```{r kcross_g1}
+# Run the 5-fold cross validation
+houseCV1 <- cv.glm(housing_fit, houseG1, K=5)
+
+# Check the resulting error metric
+houseCV1$delta
+```
+Always look at first number
+
+The first number is just mean squared error across all the folds (see Equation
+21.3 in RforE). The second is a more complicated and more compuationally
+intensive, yet similar metric. So, just as we did above, we could do this for
+all the models we fit and then use the delta value as a way of comparing them
+(lower is better).
+
+Fit a few more models to compare. Notice that we omit the `family=gaussian` parameter since
+that's actually the default (i.e. `glm` defaults to `lm`).
+
+```{r refit_glms}
+houseG2 <- glm(ValuePerSqFt ~ Units * SqFt + Boro, data = housing_fit)
+
+houseG3 <- glm(ValuePerSqFt ~ Units : SqFt + Boro, data = housing_fit)
+
+houseG4 <- glm(ValuePerSqFt ~ Units * SqFt + Boro + log(NetIncome),
+               data = housing_fit)
+
+houseG5 <- glm(ValuePerSqFt ~ Boro + Units*SqFt + log(NetIncome) + Class,
+               data = housing_fit)
+
+houseG6 <- glm(ValuePerSqFt ~ Boro + Units*SqFt + log(NetIncome) + 
+                 Class + Age, 
+               data = housing_fit)
+
+# Let's see if the log transform on NetIncome made a difference
+houseG7 <- glm(ValuePerSqFt ~ Boro + Units*SqFt + 
+                 NetIncome + Class + Age, 
+               data = housing_fit)
+```
+
+Run the cross validations for k=5. Note that we are calling the
+`cv.glm` function and passing in:
+
+- the data frame name
+- the GLM model object,
+- the number of folds (k)
+
+```{r kcrosses}
+houseCV2 <- cv.glm(housing_fit, houseG2, K=5)
+houseCV3 <- cv.glm(housing_fit, houseG3, K=5)
+houseCV4 <- cv.glm(housing_fit, houseG4, K=5)
+houseCV5 <- cv.glm(housing_fit, houseG5, K=5)
+houseCV6 <- cv.glm(housing_fit, houseG6, K=5)
+houseCV7 <- cv.glm(housing_fit, houseG7, K=5)
+
+```
+
+Gather up the error results and stick them into a `data.frame` to facilitate
+analysis of the results. Notice how `rbind` comes in handy here. You'll also
+see that `sprintf` makes another appearance. Again, worth learning.
+
+```{r gather_results}
+# HW3 figure out easy data frames - work towards it
+cvResults <- as.data.frame(rbind(houseCV1$delta,
+                                 houseCV2$delta,
+                                 houseCV3$delta,
+                                 houseCV4$delta,
+                                 houseCV5$delta,
+                                 houseCV6$delta,
+                                 houseCV7$delta))
+
+# Gives the columns nice names in cvResults in data.frame
+names(cvResults) <- c("MSE", "MSE.Adjusted")
+
+# Tack on model name to results
+cvResults$Model <- sprintf("houseG%s", 1:7)
+cvResults
+```
+
+Which model has the lowest error? Which has the highest error?
+
+In this case, does it matter which error criterion (MSE, adjusted MSE, ANOVA, AIC) we use in terms of comparing these five models? Let's see.
+
+```{r more_results}
+cvANOVA <- anova(houseG1, houseG2, houseG3,
+                 houseG4, houseG5, houseG6, houseG7)
+
+cvResults$ANOVA <- cvANOVA$'Resid. Dev'
+
+cvResults$AIC <- AIC(houseG1, houseG2, houseG3, houseG4,
+                     houseG5,houseG6,houseG7)$AIC
+```
+I'm going to reorder the columns to make things easier to visualize.
+
+```{r reordercols}
+cvResults <- cvResults[,c(3,1,2,4,5)]
+```
+
+
+Now look at the cvResults `data.frame` and think about what we might want to do
+so that we can make a faceted set of plots showing how the errors behave across models.
+The faceting is done by the specific error metric.
+
+```{r cvresults}
+cvResults
+```
+
+We can do the data reshaping using either the **reshape2** package or the newer
+**tidyr** package. Both were created by HW and have similar functionality (though
+reshape2 is a little more general). 
+
+
+### Using reshape2
+
+```{r using_reshape2}
+# HW3 - wide to long
+
+cvResultsMelted <- reshape2::melt(cvResults,
+                            id.vars = "Model",
+                            variable.name = "Metric",
+                            value.name = "Value")
+cvResultsMelted
+```
+
+### Using tidyr
+
+```{r using_tidyr}
+# Does same thing as above
+cvResultsGathered <- tidyr::gather(cvResults, 
+                                   key = "Metric", value = "Value",
+                                   -Model)
+
+cvResultsGathered
+```
+
+Of course, you can have more than one key column. Here's a picture of melting with
+two key columns.
+
+```{r meltpic}
+knitr::include_graphics('images/melt.png')
+```
+
+
+
+### Plot all error metrics
+
+Now we are ready to plot.
+
+```{r gmetrics1}
+gmetrics <- ggplot(data = cvResultsMelted, aes(x=Model, y=Value)) + 
+  geom_point(aes(group = Metric, color = Metric)) + 
+  facet_wrap(~Metric)
+
+gmetrics
+```
+
+Yuck! The y-axis is common to all plots which makes it impossible to see the real patterns.
+
+http://www.cookbook-r.com/Graphs/Facets_(ggplot2)/
+
+```{r gmetrics2}
+gmetrics <- ggplot(data = cvResultsMelted, aes(x=Model, y=Value)) + 
+  geom_point(aes(group = Metric, color = Metric)) + 
+  facet_wrap(~Metric, scales="free")
+
+gmetrics
+```
+
+Close. The X-axis is not pretty and the legend is redundant. 
+
+* use the `theme()` function to tweak the x-axis,
+* use the `guides()` function to supress the legend.
+
+```{r gmetrics3}
+gmetrics <- gmetrics + 
+  theme(axis.text.x = element_text(angle=90, vjust=.5)) + 
+  guides(color = FALSE) #suppresses legend
+
+gmetrics
+```
+
+So, does it really matter which error metric we use in terms of choosing the "best" model?
+
+While the `boot` package makes k-fold cross validation easy to do for `glm` type
+models, what if we want to do it for other non-glm models? Again, this is where
+R really shines. We can write our own function to do this and make it as general
+or generic as we'd like (or can).
+
+
+Comparing predictions on test data
+----------------------------------
+
+We saw how the models performed using k-fold cross-validation and now let's see
+if we get similar relative performance on the holdout data (`housing_test`).
+
+This is the true test of a predictive model.
+
+```{r predict_test}
+housePredictG1 <- predict(houseG1, newdata = housing_test)
+
+housePredictG2 <- predict(houseG2, newdata = housing_test)
+
+housePredictG3 <- predict(houseG3, newdata = housing_test)
+
+housePredictG4 <- predict(houseG4, newdata = housing_test)
+
+housePredictG5 <- predict(houseG5, newdata = housing_test)
+
+housePredictG6 <- predict(houseG6, newdata = housing_test)
+
+housePredictG7 <- predict(houseG7, newdata = housing_test)
+```
+
+Let's use RMSE to compare the 7 models on their predictive accuracy. Instead of writing our own,
+we'll use a package called MLmetrics.
+
+```{r}
+library(MLmetrics)
+```
+
+
+
+```{r compute_rmse}
+rmse_1 <- RMSE(housing_test$ValuePerSqFt, housePredictG1)
+rmse_2 <- RMSE(housing_test$ValuePerSqFt, housePredictG2)
+rmse_3 <- RMSE(housing_test$ValuePerSqFt, housePredictG3)
+rmse_4 <- RMSE(housing_test$ValuePerSqFt, housePredictG4)
+rmse_5 <- RMSE(housing_test$ValuePerSqFt, housePredictG5)
+rmse_6 <- RMSE(housing_test$ValuePerSqFt, housePredictG6)
+rmse_7 <- RMSE(housing_test$ValuePerSqFt, housePredictG7)
+```
+
+```{r collect_rmse}
+rmses = c(rmse_1, rmse_2, rmse_3, rmse_4, rmse_5, rmse_6, rmse_7)
+rmses
+```
+
+## Best vs Worst
+
+Let's scatter actual versus predicted for the best and worst performing models. Since ggplot likes data frames, we'll make a little data
+frame to feed it.
+
+Here's some handy R functions to find location of a min or max value
+in a vector.
+
+```{r find_best_worst}
+which.min(rmses)
+which.max(rmses)
+```
+
+```{r best_worst}
+best_worst <- data.frame(housing_test$ValuePerSqFt,
+                         housePredictG7,
+                         housePredictG3)
+
+names(best_worst) <- c("actual", "G7_pred", "G3_pred")
+```
+
+
+```{r scatter_best_worst, fig.width=7, fig.height=4, echo=FALSE}
+ggplot(data = best_worst) + geom_point(aes(x =actual, y = G7_pred))
+
+ggplot(data = best_worst) + geom_point(aes(x =actual, y = G3_pred))
+```
+
+
+```{r saveobjs}
+# Save relevant objects
+save(housing_fit, housing_test, houseG1, houseG2,
+     houseG3, houseG4, houseG5, houseG6, houseG7,
+     housePredictG7, file="data/housingmodels_GLM_1_7.rdata")
+```
+

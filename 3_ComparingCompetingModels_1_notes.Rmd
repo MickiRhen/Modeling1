@@ -1,0 +1,71 @@
+---
+title: "Comparing competing regression models"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 2
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+---
+
+Comparing competing models
+========================================================
+
+```{r libs}
+library(ggplot2)
+```
+
+## Load the prediction file we saved.
+
+```{r load_fitdata}
+load("data/housePredict1234.rdata")
+```
+
+Let's create a data frame containing the actual values of ValuePerSqFt in
+`housing_test` as well as the predicted values for the four models.
+
+* facilitates evaluation of prediction accuracy
+* facilitates comparison of the four models predictive performance
+
+```{r collect_fitdata}
+fit_preds <- data.frame(act_vpsf = housing_test[,"ValuePerSqFt"],
+                          lm1_vpsf = housePredict1,
+                          lm2_vpsf = housePredict2,
+                          lm3_vpsf = housePredict3,
+                          lm4_vpsf = housePredict4)
+
+head(fit_preds)
+```
+
+## Scatter Actual vs Predicted for each model.
+
+```{r scatter_act_pred, fig.width=7, fig.height=4, echo=FALSE}
+ggplot(fit_preds, aes(x = act_vpsf, y = lm1_vpsf)) + geom_point()
+ggplot(fit_preds, aes(x = act_vpsf, y = lm2_vpsf)) + geom_point()
+ggplot(fit_preds, aes(x = act_vpsf, y = lm3_vpsf)) + geom_point()
+ggplot(fit_preds, aes(x = act_vpsf, y = lm4_vpsf)) + geom_point()
+```
+
+Not very good, strange patterns, ... except for model `lm4`. 
+
+Let's compute the RMSE for each model. We could go look for an R package 
+containing an RMSE function or even write our own. For now, let's just
+compute it with a formula.
+
+```{r rmse}
+(RMSE1 <- sqrt(with(fit_preds, sum((act_vpsf - lm1_vpsf)^2))/nrow(fit_preds)))
+
+(RMSE2 <- sqrt(with(fit_preds, sum((act_vpsf - lm2_vpsf)^2))/nrow(fit_preds)))
+
+(RMSE3 <- sqrt(with(fit_preds, sum((act_vpsf - lm3_vpsf)^2))/nrow(fit_preds)))
+
+(RMSE4 <- sqrt(with(fit_preds, sum((act_vpsf - lm4_vpsf)^2))/nrow(fit_preds)))
+```
+
+Model4 is, not surprisingly, the lowest.
+
+Let's move on to more techniques for comparing competing regression model.
+
+
+

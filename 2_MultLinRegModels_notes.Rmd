@@ -1,0 +1,441 @@
+---
+title: "Multiple linear regression modeling"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 2
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+---
+
+
+
+Multiple linear regression modeling
+========================================================
+
+We'll look at both the MLB data as well as the NYC Housing data as we explore a
+number of aspects of multiple linear regression modeling. Let's start by
+revisiting the NYC Housing data. I've including *housing2.rdata* in the *data*
+subfolder. This version has the AgeClass field we created in the last session.
+Unfortunately, we had some missing YearBuilt values which resulted in NA for Age
+and AgeClass. Let's rectify that with a little data imputation.
+
+Fixing missing age data
+-----------------------
+
+```{r libs}
+
+library(dplyr)
+library(ggplot2)
+```
+
+```{r load_data}
+load("data/housing2.rdata")
+```
+
+Compute Boro specific mean ages
+
+```{r mean_age_boro}
+mean_age_boro <- housing %>% 
+  group_by(Boro) %>% 
+  summarize(
+    mean_age = mean(Age, na.rm=TRUE)
+    )
+
+```
+
+```{r seena}
+# Let's see the NAs
+housing[is.na(housing$YearBuilt),c("YearBuilt","Age")] %>% 
+  head()
+```
+
+Update the NAs in Age with Boro specific mean ages. Let's look at a "loopy"
+approach as well as a non-loopy approach using dplyr.
+
+```{r fixna_loopy}
+for (i in 1:5){
+  housing[is.na(housing$YearBuilt) & as.numeric(housing$Boro) == i,c("Age")] <- 
+  mean_age_boro[as.numeric(mean_age_boro$Boro) == i,c("mean_age")]
+}
+```
+
+Compare above to using dplyr's `mutate` along with `ifelse`. Note the
+join to the "lookup table".
+
+```{r demo_fixna_dply, eval=FALSE}
+# Use this one
+housing %>%
+  inner_join(mean_age_boro, by="Boro") %>%
+  mutate(Age = ifelse(is.na(YearBuilt), mean_age, Age)) %>%
+  select(1, Boro, YearBuilt, Age, mean_age)
+```
+
+```{r fixna_dply}
+housing <- housing %>%
+  inner_join(mean_age_boro, by="Boro") %>%
+  mutate(Age = ifelse(is.na(YearBuilt), mean_age, Age)) %>%
+  select(1:ncol(housing))
+```
+
+```{r check_nafix}
+# Let's check our updating
+housing[is.na(housing$YearBuilt),c("YearBuilt","Age")] %>% 
+  head()
+```
+
+Ok, let's create an AgeClass factor with breaks every 25 years. 
+
+```{r ageclass_breaks}
+# homework
+ageclass_breaks <- 0:8*25
+ageclass_breaks
+```
+
+Now, use `cut` to create our new factor.
+
+```{r ageclass}
+# Useful on HW3
+housing$AgeClass <- cut(housing$Age,ageclass_breaks)
+```
+
+```{r check_ageclass}
+summary(housing$AgeClass)
+summary(housing$Age)
+```
+
+Partitioning data into training and test
+----------------------------------------
+
+Before we start modeling, we are going to split `housing` into a "fit" or
+"training" dataset and a "test" dataset. We'll randomly pick 250 rows of housing
+for the test dataset and the others will be used for model fitting. After
+fitting models, we'll test their predictive ability with new data by using the
+test dataset.
+
+**It's easy to get fooled into thinking you have a great model just because it
+"fits well". It's not hard to create models that fit well. It's much harder to
+find models that predict well when given new data (i.e. data not used in the
+model fitting process).**
+
+Create a vector containing a random sample (without replacement) of numbers
+between `1:nrow(housing)`.
+
+```{r partition}
+set.seed(447)
+testrecs <- sample(nrow(housing),250)
+housing_test <- housing[testrecs,]
+# fit = train
+housing_fit <- housing[-testrecs,]  # Negative in front of vector means "not in"
+```
+
+A little EDA to get started
+---------------------------
+
+As a reminder, build a histogram for the response variable, ValuePerSqFt.
+
+```{r vpsf_histo1}
+ggplot(housing_fit,aes(x=ValuePerSqFt)) + 
+  geom_histogram(binwidth=10) + 
+  labs(x=" Value Per Sq Ft")
+```
+
+To help reveal further relationships between Boro and ValuePerSqFt we can:
+
+* have the fill color in the histogram be based on Boro
+* create a second plot faceted by Boro
+
+```{r vpsf_histo2}
+ggplot(housing_fit, aes(x = ValuePerSqFt, fill = Boro)) + 
+  geom_histogram(binwidth = 10) + 
+  labs(x = " Value Per Sq Ft") + facet_wrap(~Boro)
+```
+
+
+
+These plots suggest that Boro might be quite a good predictor of ValuePerSqFt.
+But what about additional variables such as Units and SqFt? Let's start with
+histograms for each.
+
+```{r histos_units_sqft}
+ggplot(housing_fit, aes(x=Units)) + geom_histogram()
+ggplot(housing_fit, aes(x=SqFt)) + geom_histogram()
+```
+
+Yikes! Looking at the x-axis suggests there are some BIG condo complexes. Let's
+rebuild the histograms but excluding those for which there are 1000 units or
+more. 
+
+```{r histos_sqft_small}
+ggplot(housing_fit[housing_fit$Units < 1000,], aes(x=SqFt)) + 
+  geom_histogram()
+```
+
+I'll do Units the dplyr way.
+
+```{r histos_units_small}
+
+housing %>% 
+  filter(Units < 1000) %>% 
+  ggplot() + geom_histogram(aes(x=Units))
+
+```
+
+
+
+Perhaps a log transform of these variables is warranted. Let's try with Units and
+do x vs y, log x vs y, x vs log y, and log x v log y.
+
+```{r scatters_units_transforms}
+ggplot(housing_fit, aes(x=Units,y=ValuePerSqFt)) + geom_point()
+ggplot(housing_fit, aes(x=log(Units),y=ValuePerSqFt)) + geom_point()
+ggplot(housing_fit, aes(x=Units,y=log(ValuePerSqFt))) + geom_point()
+ggplot(housing_fit, aes(x=log(Units),y=log(ValuePerSqFt))) + geom_point()
+```
+
+```{r scatters_sqft_transforms}
+ggplot(housing_fit, aes(x = SqFt, y = ValuePerSqFt)) + geom_point()
+ggplot(housing_fit, aes(x = log(SqFt), y = ValuePerSqFt)) + geom_point()
+ggplot(housing_fit, aes(x = SqFt, y = log(ValuePerSqFt))) + geom_point()
+ggplot(housing_fit, aes(x = log(SqFt), y = log(ValuePerSqFt))) + geom_point()
+```
+
+What about age?
+
+```{r scatter_age}
+ggplot(housing_fit, aes(x = Age , y = ValuePerSqFt)) + geom_point()
+```
+
+What about net income?
+
+```{r scatters_netincome}
+# Untransformed
+ggplot(housing_fit, aes(x = NetIncome, y = ValuePerSqFt)) + 
+  geom_point()
+
+# Log transformed
+ggplot(housing_fit,aes(x = log(NetIncome), y = ValuePerSqFt)) + 
+  geom_point()
+```
+
+Hmm, what do you think? Boro is clearly important. The other vars might be helpful?
+
+Model 1 - A purely additive model
+----------------------------------
+
+Start simple. Don't start transforming variables until you try untransformed
+versions.
+
+Wait a second. Linear regression uses numeric predictors only. Boro is clearly
+important, yet it's clearly not numeric. It's a character based `Factor`.
+Let's try it and see what happens.
+
+```{r lm1}
+houseLM1 <- lm(ValuePerSqFt ~ Boro + Units + SqFt, data=housing_fit)
+summary(houseLM1)
+```
+
+A few questions:
+
+* What happened to Boro?
+* Where is BoroBronx?
+* Which variables are significant?
+* Which variable seems to have the most explanatory value?
+* How good is the overall model fit?
+
+In the simple linear regression case we saw how to get the coefficients via:
+
+```{r coeffs}
+houseLM1$coefficients
+```
+
+You can also use the following methods:
+
+```{r coeffs2}
+coefficients(houseLM1)
+coef(houseLM1)
+```
+
+We also saw house useful the `coefplot` package is for visualizing the
+confidence intervals around the coefficients. A quick test of significance is to
+see if the confidence interval on a coefficient contains 0.
+
+```{r lib_coefplot}
+library(coefplot)
+```
+
+```{r lm1_coefplot}
+coefplot(houseLM1)
+```
+
+It's hard to see the confidence intervals for Units and SqFt. Why? Are these
+variables insignificant? What's going on?
+
+```{r lm1_coefplots2}
+coefplot(houseLM1, predictors=c("Units","SqFt"))
+coefplot(houseLM1, predictors=c("Units"))
+coefplot(houseLM1, predictors=c("SqFt"))
+```
+
+I pointed this out to Jared Lander, our RforE author and he said he'd address it
+in the 2nd edition. He did. :)
+
+Models 2 and 3 - Including interaction terms
+----------------------------------------------
+
+Sometimes two predictors interact in ways that aren't captured by simply adding
+them together. An *interaction* term is formed by multiplying two predictor
+variables by each other to create a new variable. R makes it really easy to do
+this. Here are two variants. Run them and explain the difference between ` * `
+and ` : `.
+
+```{r interactions}
+houseLM2 <- lm(ValuePerSqFt ~ Units * SqFt + Boro, data = housing_fit)
+houseLM3 <- lm(ValuePerSqFt ~ Units : SqFt + Boro, data = housing_fit)
+```
+
+```{r lm2_lm3}
+# Explore each model and explain the difference in the outputs
+summary(houseLM2)
+summary(houseLM3)
+```
+
+You can experiment with three way interactions such as `Units * SqFt * Boro`.
+You should also see what happens when you create interaction terms based on one
+or more `Factor` variables (e.g. `Boro * Units` or `Boro * Class`).
+
+Even before exploring such additional models, we already have three competing
+models. We'll talk more about model selection later, but for now, let's see how
+the coefficients compare via the `multiplot` command from the `coefplot`
+package.
+
+```{r multiplot}
+multiplot(houseLM1,houseLM2,houseLM3)
+```
+
+Let's try one more model.
+
+```{r lm4}
+houseLM4 <- lm(ValuePerSqFt ~ Units * SqFt + Boro + log(NetIncome), 
+               data=housing_fit)
+
+summary(houseLM4)
+```
+
+
+What simple measure can we use to see with of these models fits better? Create
+a vector containing these measures.
+
+```{r rsqrd_vector}
+rsqrd <- c(summary(houseLM1)$r.squared, summary(houseLM2)$r.squared,
+           summary(houseLM3)$r.squared, summary(houseLM4)$r.squared)
+
+rsqrd
+```
+
+Using models for prediction
+----------------------------
+
+So, we've done nothing but fit models. That can be useful in and of itself for
+increasing our understanding of factors that drive NYC condo values. However, we
+can also use models like this for prediction. When we say "prediction" we mean
+that we are going to use a model that was fit based on one dataset to predict
+the outcome for a **new** data observation(s). Fitting models is **much** easier
+than building good predictive models. A set of new observations is available in
+our test dataset, `housing_test`.
+
+Before trying to do predictions using R's `predict` command, make sure that the
+variable names in the model(s) and in the new dataset are the same. For `Factor`
+data such as Boro, you need to make sure that the levels are the same (since
+binary variables will get names based on the levels).
+
+
+
+```{r predictions_1234_nose}
+housePredict1 <- predict(houseLM1, newdata = housing_test)
+
+housePredict2 <- predict(houseLM2, newdata = housing_test)
+
+housePredict3 <- predict(houseLM3, newdata = housing_test)
+
+housePredict4 <- predict(houseLM4, newdata = housing_test)
+
+# Save relevant objects for later use
+save(housing_fit, housing_test,
+     houseLM1, houseLM2, houseLM3, houseLM4,
+     housePredict1, housePredict2, housePredict3, housePredict4,
+     file="data/housePredict1234.rdata")
+```
+
+```{r}
+class(housePredict1)
+```
+
+```{r}
+housePredict1[1:10]
+```
+
+Some questions immediately arise:
+
+* How did we do?
+* What kinds of measures could we use to assess the predictive performance of
+houseLM1 (and then to compute for other candidate models such as houseLM2,
+houseLM3, and houseLM4 so that we can compare them)?
+* What visualizations could we use to assess the predictive performance of houseLM1?
+* What data objects might we want to create to facilitate our evaluation of houseLM1?
+
+### Appendix - prediction intervals
+
+Let's just do predictions for the first model and explore some of the
+outputs we can get with the `predict` method for linear models if
+we ask for extra outputs related to standard errors and prediction intervals.
+
+```{r predictions_1}
+housePredict1_se <- predict(houseLM1, newdata=housing_test, se.fit=TRUE,
+                         interval="prediction", level=0.95)
+```
+
+Let's look at one of these sets of predictions to see exactly what 
+we get. Sometimes in R, we aren't so sure what an object is. Best to
+figure it out. 
+
+```{r}
+class(housePredict1_se)
+
+# Let's see what attributes it has
+ls(housePredict1_se)
+```
+
+What's this `fit` attribute contain?
+
+```{r}
+class(housePredict1_se$fit)
+```
+
+Hmm, what is it's shape?
+
+```{r}
+nrow(housePredict1_se$fit)
+ncol(housePredict1_se$fit)
+```
+
+Ok, let's check it out by looking at first 10 rows.
+
+```{r}
+housePredict1_se$fit[1:10, 1:3]
+```
+
+Oh, notice that we get lower and upper prediction intervals. Of course,
+all this is in the Help page too. Let's go to main Help page for
+`predict` and you'll see that we have to dig a little deeper and
+find the specific `predict` method for use with `lm` objects.
+
+```{r}
+help(predict)
+```
+
+```{r}
+help("predict.lm")
+```
+

@@ -1,0 +1,296 @@
+---
+title: "Simple linear regression"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 2
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+---
+
+Simple linear regression models
+========================================================
+
+```{r lib_ggplot2}
+library(ggplot2)
+```
+
+As Jared Lander, the auther of **R for Everyone** aptly describes it, linear
+regression is truly the workhouse of statistical analysis. While the world is
+certainly not exclusively a linear place, this simple model nevertheless can
+often be used to reveal important relationships between a set of:
+
+- *predictor variables* or *features* or *independent variables* and x's
+- a *response* or *target* or *dependent* variable. y's
+
+I'm assuming you've already had some exposure to simple and multiple linear
+regression models. We'll focus here on using regression for predictive modeling
+and on topics such as model training, validation and diagnostics. We'll also use
+regression to introduce the notion of parameter estimation and error metrics for
+assessing model fit. These concepts are applicable to other techniques in the
+regression family such as logistic regression and even to machine learning 
+techniques such as neural networks or regression trees.
+
+### Learning Resources
+
+- Chapter 3 of [Introduction to Statistical Learning with 
+R](http://www-bcf.usc.edu/~gareth/ISL/) has a nice section that on linear 
+regression that reviews the major concepts and has good examples. 
+- I've also posted video screencasts and files from my MIS 5460 class on
+regression modeling for another source of review info.
+- R specific details for topic are also covered in Section 16.2 of **RforE**.
+
+Simple linear regression
+------------------------
+
+Let's start with simple linear regression - i.e. a model with a single independent variable.
+
+$$
+  Y = \beta_{0} + \beta_{1}X + \epsilon
+$$
+
+Just to be clear, $Y$ and $X$ are *random variables* and $\beta_{0}$ and
+$\beta_{1}$ are **unknown** parameters.
+
+Also, recall that the errors are **assumed** to be normally distributed,
+
+$$
+  \epsilon \sim N(0,\sigma^{2}).
+$$
+
+With such a model, we are saying that, for some given value of $X$,
+
+$$
+  P(Y|X=x) \sim N(\beta_{0} + \beta_{1}x,\sigma^{2})
+$$
+
+The above is called a *conditional probability*. So, notice that the regression
+model itself is really a prediction of the unknown **mean** of $Y$ for a given
+value of $X$.
+
+After we "fit" the model, we should check how reasonable this assumption is for
+our dataset. Fitting the model means we need to come up with a way to estimate
+any parameters in the model.
+
+Q: How many parameters do we have in the simple regression model and how do we estimate their values?
+
+In my MIS 5460 - Business Analytics class, I show how to do simple linear
+regression, six different ways, in Excel - see **12-06
+RegressionCalculations-wFunctionsSolverLINEST.xlsx**. In particular, this Excel
+file illustrates a few things about regression:
+
+* estimating model parameters boils down to an optimization problem
+* with respect to linear regression, the optimization problem is to find values for $\beta_{0}$ and $\beta_{1}$ that minimize WHAT?
+* "minimize least squares" means just that - make small squares
+* *fitting* a model boils down to coming up with estimates for the unknown parameters.
+
+$$
+  y_{i} = b_{0} + b_{1}x_{i} 
+$$
+
+for $i=1,2 \ldots n$ where $n$ is the sample size or the number of $(x,y)$ pairs used to estimate the parameters.
+
+Ok, let's look a a few simple linear regression models for some data about Major
+League Baseball team performance in the 2010 (and 2011) season. I like this
+particular dataset for exploring regression modeling because
+
+* you can build some pretty good models with a small number of variables
+* it gives us a chance to discuss linear vs non-linear models via the Pythagorean Theorem of Baseball
+* which also motivates a little discussion about sabermetrics and the like
+* it illustrates the potential problems associated with multi-collinearity
+* provides a nice example of training vs test data
+
+Let's start with **MLB2010.csv** which can be found in the data subfolder for
+this session's Downloads file.
+
+```{r read_data}
+MLB2010 <- read.csv("data/MLB2010.csv", stringsAsFactors=FALSE)
+
+str(MLB2010)
+```
+
+The response variable for which we want to build a predictive model is winning
+percentage. Create a new computed column called WinPct. Consider using `with` to
+make it a little easier on your typing.
+
+```{r winpct}
+MLB2010$WinPct <- with(MLB2010, Won/(Won + Lost))
+```
+
+Before trying to build a predictive model for WinPct, we should do some quick
+univariate and bivariate EDA.
+
+```{r summary_stats}
+summary(MLB2010)
+cor(MLB2010[,2:14]) #All rows, columns 2-14
+```
+
+Look carefully at the correlation matrix. Let's list our findings:
+
+* Numbers between -1 and 1
+* Diagonal = 1 because variables are perfectly correlated with themselves
+* symmetric
+...
+
+
+We'll need to keep some of these findings in mind as we build various regression models.
+
+Before starting to model, a matrix of scatterplots would be nice. What does it reveal?
+
+```{r scatter_matrix}
+pairs(MLB2010[,4:14])
+```
+
+Or maybe a correlation plot:
+
+```{r}
+corrmat <- cor(MLB2010[,4:14])
+corrplot::corrplot(corrmat,)
+```
+
+Now let's create a very simple linear regression model to to predict `WinPct ~
+Runs`. First let's do what we might do in Excel - create a scatterplot and
+include a linear trend line. I'll do it in pieces. Scatter first, then add trend
+line.
+
+```{r}
+gscatter <- ggplot(MLB2010, aes(x=Runs, y=WinPct)) + 
+  geom_point() + 
+  labs(x="Runs", y="WinPct")
+
+gscatter
+
+gscatter <- gscatter + geom_smooth(method="lm")
+
+gscatter
+```
+
+Notice you get a band around the line. What is it?
+
+On an Excel scatter plot, other than options for adding a text box with the
+$R^2$ and the fitted equation, we don't actually have useful access to the
+fitted model. Same here. To fit a linear model, we use the `lm` command. If we
+autoprint the resultant object we get the coefficients (y-intercept and slope in
+this case).
+
+```{r}
+winpctLM1 <- lm(WinPct ~ Runs, data=MLB2010)
+winpctLM1
+```
+
+Hmm, I wonder how one would show the formula and $R^2$ value on a ggplot? Seriously, I wonder - I don't know off the top of my head.
+
+To get the standard regression output, we use `summary`. Wait a second, I
+thought we used `summary` to get quick univariate summaries of the columns in a
+`data.frame`. This is another example of the power and beauty of R. The commands
+`summary(dataframe object)` and `summary(linear model object)` do summaries that
+are appropriate for the type of object passed in.
+
+```{r}
+summary(winpctLM1)
+```
+
+First of all, let's do a review of the regression output. You need to know what
+all of the values in the output table mean.
+
+**Residuals**
+
+Vector of vertical distances between the actual data point and the fitted line.
+
+**Coefficients**
+
+* Estimate -- the estimated values of the coefficients from least squares routine
+* Std. Error -- a measure of our confidence in our estimates of the coefficients. We'll use soon.
+* t value -- the test statistic associated with the t-test for testing if the coefficient is signficant (i.e. not equal to 0). It's just Estimate/(Std error of estimate)
+* Pr(>|t|) -- "p-value" - it's the probability of getting a t value at least this extreme if the coefficient was NOT signficant (i.e. not different than zero). So, low p-value suggests signficant variable.
+* Signif. codes -- quick visual to see how small p-value is compared to various signficance levels. Remember, we get to pick the significance level (often represented by $\alpha$). It's the Type I error
+we are willing to accept. What's type I error? 
+
+Type I error = Prob(reject null hypothesis | null hypothesis is true)
+
+What's the null hypothesis that we are testing with respect to the variable coefficients?
+
+Type I error = Prob(conclude variable is significant | variable is NOT signficant)
+
+Type I error = Prob(conclude variable has non-zero slope | variable has slope of zero)
+
+**Overall**
+
+Here's a [link to a quirky little site](http://www.jerrydallal.com/lhsp/slrout.htm) that does a nice job of explaining the output of simple linear regression. Any basic stats book will explain all of this as does the Introduction to Statistical Learning eBook that I mentioned in the Readings for
+this session. You should review the following terms:
+
+* Residual standard error --
+* Multiple R-squared --
+* Adjusted R-squared --
+* F-statistic --
+* p-value -- 
+
+
+
+Now, here's something that you might not have realized about R. 
+
+```{r}
+ls(winpctLM1)
+```
+
+Hmm. In the console, type `winpctLM1$` and hit <TAB>. Explore a bit. Then do a `help(lm)`.
+
+What kind of object does `lm` return?
+
+```{r}
+str(winpctLM1)
+```
+
+Ahhh, so that's what that data stucture is useful for.
+
+To get the ANOVA table associated with the regression model,
+
+```{r}
+anova(winpctLM1)
+```
+
+What does it tell us?
+
+The primary use of the standard errors associated with the coefficients is to
+construct confidence intervals on their values.
+
+* why might we want CI's and what do they tell us?
+* how do we actually compute them?
+* be nice to display them graphically
+
+
+
+Thankfully, there is a package called `coefplot` to make this easy. It was
+written by Jared Lander. Install it if needed then load it.
+
+```{r, eval=FALSE}
+# install.packages("coefplot")
+```
+
+```{r}
+library(coefplot)
+```
+
+Let's call it twice; once for all the fitted parameters and once for just the Runs parameter. 
+You'll see why plotting both together isn't super useful.
+
+```{r}
+coefplot(winpctLM1)
+coefplot(winpctLM1, predictors="Runs")
+```
+
+So, does the first plot imply that Runs isn't an important predictor? What does
+it mean?
+
+In the second plot, you can see how the confidence interval can be used to
+decide if a predictor is statistically signficant or not. Explain.
+
+Finally, do you think we should test each of the other potential predictor
+variables (by themselves), to see if we can find a better fitting (i.e. higher
+R-squared) simple (one predictor) linear regression model? Why or why not? Is
+there a simpler alternative to running a bunch of one variable models to check
+their R-squared values?
+
+Of course, often we have numerous potential predictor variables that might be
+useful in our regression model. On to multiple linear regression!
