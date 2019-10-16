@@ -318,7 +318,7 @@ gmetrics <- ggplot(data = cvResultsMelted, aes(x=Model, y=Value)) +
 gmetrics
 ```
 
-Yuck! The y-axis is common to all plots which makes it impossible to see the real patterns.
+Yuck!    The y-axis is common to all plots which makes it impossible to see the real patterns.
 
 http://www.cookbook-r.com/Graphs/Facets_(ggplot2)/
 
