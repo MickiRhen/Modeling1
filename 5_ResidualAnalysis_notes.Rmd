@@ -50,7 +50,7 @@ of the residuals. We can pluck the value using the `summary` function. While in 
 the SE is in the `sigma` property, in `glm` we compute SE as the `sqrt(dispersion)`.
 
 http://stats.stackexchange.com/questions/33432/dispersion-parameter-in-glm-output
-
+In GLM its the square root of dispersion
 ```{r se_glm}
 #SE_LM1 <- summary(houseG4)$sigma
 SE_G1 <- sqrt(summary(houseG4)$dispersion)
@@ -67,7 +67,7 @@ hist_resid +
 Whoa, what happened?!
 
 Easy fix.
-
+frequency
 ```{r histo_resids_density}
 hist_resid <- ggplot(houseG4) + 
   geom_histogram(aes(x =houseG4$residuals, y = ..density..))
@@ -83,6 +83,7 @@ The other key assumption is that the residuals are constant in the sense of not
 being dependent on the level of the predicted value. To check this, the standard
 approach is to plot residuals vs. predicted values. Note the "dotted" notation
 for accessing attributes of houseG4. 
+plot residuals v predicted (y) values
 
 ```{r check_constant_var}
 ggplot(data=houseG4, aes(x = .fitted, y = .resid)) + 

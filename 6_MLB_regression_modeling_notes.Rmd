@@ -1,0 +1,198 @@
+---
+title: "Multiple linear regression challenge"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 2
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+---
+
+
+Multiple linear regression model building challenge
+========================================================
+
+Ok, let's revisit the Major League Baseball team data containing performance
+stats in the 2010 (and 2011) season. I like this particular dataset for
+exploring regression modeling because:
+
+* you can build some pretty good models with a small number of variables
+* it gives us a chance to discuss linear vs non-linear models via the
+Pythagorean Theorem of Baseball
+* which also motivates a little discussion about sabermetrics and the like
+* it illustrates the potential problems associated with multi-collinearity
+* provides a nice example of training vs test data
+
+Let's read in **MLB2010.csv** and **MLB2011.csv** which can be found in the data
+subfolder for this session's Downloads file.
+
+I'm going to use the readr package.
+
+```{r libs}
+library(dplyr)
+library(readr)
+```
+
+```{r read_data}
+MLB2010 <- read_csv("data/MLB2010.csv")
+
+MLB2011 <- read_csv("data/MLB2011.csv")
+
+str(MLB2011, give.attr = FALSE)
+```
+
+The response variable for which we want to build a predictive model is winning
+percentage.
+
+
+```{r winpct}
+
+MLB2010 <- MLB2010 %>% 
+  mutate(WinPct = 100 * Won/(Won + Lost))
+
+MLB2011 <- MLB2011 %>% 
+  mutate(WinPct = 100 * Won/(Won + Lost))
+
+# Here's non-dplyr approach
+# MLB2010$WinPct <- with(MLB2010, 100 * Won/(Won + Lost))
+# MLB2011$WinPct <- with(MLB2011, 100 * Won/(Won + Lost))
+```
+
+We saw in the first set of notes on simple linear regression that Runs (as
+expected) was highly correlated with WinPct. Now your goal is to build the best
+model you can for predicting WinPct. Use MLB2010 as your fit dataset. Start by
+trying to find the best model you can in terms of fitting the 2010 data.
+
+Obviously you are not allowed to use the variables Won and/or Lost as
+predictors. Read Section 21.5 on Stepwise Variable Selection. Even though
+Stepwise is considered pretty evil, we'll try it anyway in a little bit. See
+[Stepwise Regression = Voodoo
+Regression](http://core.ecu.edu/psyc/wuenschk/stathelp/Stepwise-Voodoo.htm).
+
+Let's start by creating the smallest and largest simple multiple regression models. We will often create something called the `null model`. This is
+the simplest possible model one might use. In terms of linear regression,
+we'll use the overall average of the response variable as the null model.
+
+```{r null_full}
+
+nullModel <- lm(WinPct ~ 1, data = MLB2010)
+
+fullModel <- lm(WinPct ~ Runs + Hits + Doubles + Triples + HR + 
+                  RBI + ERA + RunsAgainst + SO + BB, data = MLB2010)
+
+# Here's a more concise way to specify the formula. The "dot" means all
+# variables and then we use the "minus" to eliminate ones we don't want.
+
+fullModel2 <- lm(WinPct ~ . - Won - Lost - Team, data = MLB2010)
+
+```
+"." above means all of the variables
+
+Let's do a summary of these.
+
+```{r summary_null_full}
+summary(nullModel)
+summary(fullModel)
+```
+
+Look closely at the coefficients in the full model. Notice anything strange?
+
+```{r}
+library(corrplot)
+```
+```{r}
+corrplot(cor(MLB2010[,2:14] ))
+```
+
+
+```{r}
+# Take out doubles and triples (why?)
+simpleLM1 <- lm(WinPct ~ Runs + Hits + HR + RBI + ERA +
+                  RunsAgainst + SO + BB, data = MLB2010)
+```
+
+Advanced regression diagnostics are provided in John Fox's [car package](http://www.statmethods.net/stats/rdiagnostics.html).
+
+diagnostic to diagnosis multicolinearity - variance inflation factor
+
+```{r lib_car}
+#install.packages("car")
+library(car)
+```
+You want it to be less than 5
+```{r vif}
+# Evaluate Collinearity
+vif(fullModel) # variance inflation factors
+vif(simpleLM1)
+```
+
+A common rule of thumb is that VIFs > 5-10 indicate a problem with
+multi-collinearity. So, what is this "multi-collinearity" that seems to be a problem?
+
+* what effects does it have? Doesn't affect predictions.  Mostly affects stability of estimates of parameters
+* how can you remedy it? Drop one of the variables thats correlated
+* how do automated variable selection approaches like stepwise regression
+perform in face of it? We'll see
+* does it affect predictive ability on new data? No
+
+See p99-102 in ISLR eBook. A nice blog post is:
+
+[https://beckmw.wordpress.com/2013/02/05/collinearity-and-stepwise-vif-selection/](https://beckmw.wordpress.com/2013/02/05/collinearity-and-stepwise-vif-selection/)
+
+Let's try a sequence of progressively simpler models.
+
+```{r simpler_models}
+simpleLM1 <- lm(WinPct ~ Runs + Hits + HR + RBI + ERA +
+                  RunsAgainst + SO + BB, data = MLB2010)
+
+#simpleLM2 <- ????
+```
+
+Stepwise-regression just to see what happens
+--------------------------------------------
+
+Stepwise regression is widely frowned upon. Nevertheless, since we 
+are building models to be "crystal balls" and aren't trying to
+draw inference about the model parameters, let's do it anyway. It's
+enlightening to see that it's by no means guaranteed to find a
+"good" model.
+
+```{r}
+MLB2010step <- step(fullModel,
+                    scope = list(lower=nullModel, upper=fullModel),
+                    direction="both")
+
+summary(MLB2010step)
+```
+
+Notice the seemingly strange signs associated with SO, Hits, HR, SO and BB.
+
+Build a better model
+--------------------------------------------------------------------
+
+So, you've learned a little about multiple linear regression. Try to build
+a better model for the MLB2010 dataset.
+
+What's the best model you found in terms of it and what method did you use to
+compare competing models?
+
+Now use the 2011 data as the test set and see how your various models do in
+terms of prediction on 2011 WinPct. Does the same model that fit the 2010 data
+the best also predict the 2011 data the best?
+
+Also feel free to use k-fold cross-validation with the 2010 data and then see if
+the model that "wins" does better on the 2011 data than the previous model you
+tried.
+
+You should also look into the Pythagorean Theorem of Baseball (PTB).
+
+* Is PTB a linear model?
+* How many parameters in the PTB?
+* How well does PTB do in predicting 2011 MLB WinPct as compared to the best
+linear model you find?
+
+
+
+
+
